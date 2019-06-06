@@ -10,7 +10,7 @@
 
 VRC7 Audio emulator by Delphi1024
 
-===RESOURCES===
+===REFERENCES===
 VRC7 die shot by digshadow:
 	https://siliconpr0n.org/archive/doku.php?id=digshadow:konami:vrc_vii_053982
 
@@ -101,6 +101,12 @@ struct vrc7_slot {
 	int32_t sample_prev;
 
 	uint32_t phase;
+	uint32_t phase_inc;
+
+	uint8_t ksl_val;
+
+	uint8_t env_rate_high;
+	uint8_t env_rate_low;
 	uint8_t env_stage;
 	uint8_t env_value;
 	bool env_enabled;
