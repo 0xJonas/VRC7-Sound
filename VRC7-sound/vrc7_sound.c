@@ -190,7 +190,7 @@ static uint32_t calc_phase_inc(uint32_t fNum, uint32_t octave, uint8_t mult) {
 
 static uint8_t calc_ksl(uint32_t fNum, uint32_t octave, uint8_t ksl_index) {
 	//Calculate attenuation due to key level scaling
-	int32_t ksl_val = KSL[fNum >> 5] - ((0b111 ^ octave) << 3) - 8;
+	int32_t ksl_val = KSL[fNum >> 5] - ((8 - octave) << 3);
 	ksl_val = max(ksl_val, 0);
 	return (ksl_val << 1) >> KSL_SHIFT[ksl_index];
 }
@@ -204,11 +204,11 @@ static uint8_t calc_envelope_rate_low(uint32_t fNum, uint32_t octave, bool ksr) 
 	return ksr_inc & 0b11;
 }
 
-static uint8_t calc_envelope_rate_high(struct vrc7_patch *patch, uint8_t type, uint8_t env_stage, uint32_t octave, bool trigger, bool sustain) {
+static uint8_t calc_envelope_rate_high(struct vrc7_channel *channel, struct vrc7_patch *patch, uint8_t type, uint8_t env_stage) {
 	//key rate scaling
 	uint8_t key_scale = 0;
 	if (patch->key_scale_rate[type])
-		key_scale = octave >> 1;
+		key_scale = channel->octave >> 1;
 
 	//Set rate based on current envelope stage
 	uint8_t rate_high = 0;
@@ -226,10 +226,10 @@ static uint8_t calc_envelope_rate_high(struct vrc7_patch *patch, uint8_t type, u
 			rate_high = patch->release_rate[type] + key_scale;
 		break;
 	case ENV_DAMPING: 
-		if (trigger)	//Key on, get envelope ready
+		if (channel->trigger)	//Key on, get envelope ready
 			rate_high = ENV_DAMPING_RATE + key_scale;
 		else {
-			if (sustain)
+			if (channel->sustain)
 				rate_high = ENV_SUSTAINED_RATE + key_scale;
 			else if (!patch->sustained[type])
 				rate_high = ENV_PERCUSSIVE_RATE + key_scale;
@@ -270,16 +270,17 @@ static void set_envelope_stage(struct vrc7_sound *vrc7_s,uint8_t ch, uint8_t typ
 
 	//Calculate new high and low rates
 	slot->env_stage = stage;
-	slot->env_rate_high = calc_envelope_rate_high(patch, type, stage, channel->octave, channel->trigger, channel->sustain);
+	slot->env_rate_high = calc_envelope_rate_high(channel, patch, type, stage);
 }
 
-static uint32_t calc_envelope(struct vrc7_sound *vrc7_s, uint32_t ch,uint8_t type) {
+static void update_envelope(struct vrc7_sound *vrc7_s, uint32_t ch,uint8_t type) {
 	struct vrc7_channel *channel = vrc7_s->channels[ch];
 	struct vrc7_patch *patch = vrc7_s->patches[channel->instrument];
 	struct vrc7_slot *slot = channel->slots[type];
 	
 	uint8_t rate_high = slot->env_rate_high;
 	uint8_t rate_low = slot->env_rate_low;
+	bool env_enabled = slot->env_enabled;
 
 	//Check whether to update the envelope 'naturally'
 	bool clock_envelope = false;
@@ -298,80 +299,81 @@ static uint32_t calc_envelope(struct vrc7_sound *vrc7_s, uint32_t ch,uint8_t typ
 	bool mini_odd = (vrc7_s->mini_counter & 1) == 0;
 
 	//Setup the four different increment values
-	int inc1 = slot->env_stage == ENV_ATTACK ? slot->env_value >> 1 : 0x7f;
-	int inc2 = slot->env_stage == ENV_ATTACK ? slot->env_value >> 2 : 0x7f;
-	int inc3 = slot->env_stage == ENV_ATTACK ? slot->env_value >> 3 : 0x7f;
-	int inc4 = slot->env_stage == ENV_ATTACK ? slot->env_value >> 4 : 0x7f;
-	if (slot->env_enabled) {
-		inc1 &= 0b1111101;
-		inc2 &= 0b1111110;
+	int inc1 = slot->env_stage == ENV_ATTACK ? -slot->env_value >> 1 : 0;
+	int inc2 = slot->env_stage == ENV_ATTACK ? -slot->env_value >> 2 : 0;
+	int inc3 = slot->env_stage == ENV_ATTACK ? -slot->env_value >> 3 : 0;
+	int inc4 = slot->env_stage == ENV_ATTACK ? -slot->env_value >> 4 : 0;
+	if (env_enabled) {
+		inc1 |= 2;
+		inc2 |= 1;
 	}
 	
 	//Compute envelope increment based on previous stuff
-	int env_inc = 0x7f;
+	int env_inc = 0;
 
 	if (clock_envelope || !env_table && rate_high == 12)
-		env_inc &= inc4;
+		env_inc |= inc4;
 
 	if (!env_table && rate_high == 13 || env_table && rate_high == 12)
-		env_inc &= inc3;
+		env_inc |= inc3;
 
-	if (clock_envelope && mini_zero && slot->env_enabled
+	if (clock_envelope && mini_zero && env_enabled
 			|| rate_high == 14 && !env_table
 			|| rate_high == 13 && env_table
-			|| rate_high == 13 && !env_table && mini_odd && slot->env_enabled
-			|| rate_high == 12 && !env_table && mini_zero && slot->env_enabled
-			|| rate_high == 12 && env_table && mini_odd && slot->env_enabled)
-		env_inc &= inc2;
+			|| rate_high == 13 && !env_table && mini_odd && env_enabled
+			|| rate_high == 12 && !env_table && mini_zero && env_enabled
+			|| rate_high == 12 && env_table && mini_odd && env_enabled)
+		env_inc |= inc2;
 
 	if (rate_high == 15 || rate_high == 14 && env_table)
-		env_inc &= inc1;
+		env_inc |= inc1;
 
 	//Update the envelope value in a weird way
-	slot->env_value = ~((0x7f ^ slot->env_value) + env_inc + 1) & 0x7f;
+	uint8_t env_value = (slot->env_value + env_inc) & 0x7f;
 	
 	//Update envelope stage
 	//Restart envelope
 	if (slot->restart_env) {
-		slot->env_enabled = true;
+		env_enabled = true;
 		set_envelope_stage(vrc7_s, ch, type, ENV_DAMPING);
 		slot->restart_env = false;
 	}
 	
 	//Skip attack phase when rate is 15
 	if (slot->env_stage == ENV_ATTACK && rate_high == 15) {
-		slot->env_value = 0;
+		env_value = 0;
 		set_envelope_stage(vrc7_s, ch, type, ENV_DECAY);
 	}
 
 	//Enter decay phase when envelope peak is reached
-	if (slot->env_stage == ENV_ATTACK && slot->env_value == 0) {
+	if (slot->env_stage == ENV_ATTACK && env_value == 0) {
 		set_envelope_stage(vrc7_s, ch, type, ENV_DECAY);
 	}
 
 	//Exit damping phase when value is low enough
-	if (slot->env_stage == ENV_DAMPING && slot->env_value >= 0x7c) {
+	if (slot->env_stage == ENV_DAMPING && env_value >= 0x7c) {
 		set_envelope_stage(vrc7_s, ch, type, ENV_ATTACK);
 	}
 
 	//Check if sustain level has been reached
 	uint8_t sustain_level = patch->sustain_level[type];
-	if (slot->env_stage == ENV_DECAY && slot->env_value >> 3 == sustain_level) {
+	if (slot->env_stage == ENV_DECAY && env_value >> 3 == sustain_level) {
 		set_envelope_stage(vrc7_s, ch, type, ENV_RELEASE);
 	}
 
 	//Release envelope when trigger bit is 0
-	if (!channel->trigger && !(type==MODULATOR && patch->sustained[MODULATOR])) {
+	if (slot->env_stage!=ENV_DAMPING && !channel->trigger && !(type==MODULATOR && patch->sustained[MODULATOR])) {
 		set_envelope_stage(vrc7_s, ch, type, ENV_DAMPING);
-		slot->env_enabled = true;
+		env_enabled = true;
 	}
 
 	//Stop incrementing envelope during the RELEASE/DAMPING phase when the value gets too big
-	if ((slot->env_stage == ENV_RELEASE || slot->env_stage == ENV_DAMPING) && slot->env_value >= 0x7c) {
-		slot->env_enabled = false;
+	if (env_enabled && env_value >= 0x7c && (slot->env_stage == ENV_RELEASE || slot->env_stage == ENV_DAMPING)) {
+		env_enabled = false;
 	}
-	
-	return slot->env_value;
+
+	slot->env_value = env_value;
+	slot->env_enabled = env_enabled;
 }
 
 static int32_t update_slot(struct vrc7_sound *vrc7_s, uint32_t ch, uint8_t type) {
@@ -405,19 +407,18 @@ static int32_t update_slot(struct vrc7_sound *vrc7_s, uint32_t ch, uint8_t type)
 		volume += vrc7_s->tremolo_value >> 3;
 
 	//Add envelope
-	uint32_t env_value = calc_envelope(vrc7_s, ch, type);
+	update_envelope(vrc7_s, ch, type);
 #ifdef VRC7_TEST_REG
-	if (vrc7_s->test_envelope)
-		env_value = 0;
+	if (!vrc7_s->test_envelope)
 #endif
-	volume += env_value;
+	volume += slot->env_value;
 
 	//Clamp volume
 	volume = min(volume, 0x7f);
 
 	//Get operator value
 	int32_t output = calc_operator(slot->phase, modulation, volume, patch->rect[type]);
-	if (env_value == 0x7f)	//Not sure is this will ever be reached, but if it does, the VRC7 explicitely sets the operator output to 0.
+	if (slot->env_value == 0x7f)	//Not sure is this will ever be reached, but if it does, the VRC7 explicitely sets the operator output to 0.
 		output = 0;
 	slot->sample_prev = slot->sample;
 	slot->sample = output;
@@ -428,14 +429,14 @@ static int32_t update_slot(struct vrc7_sound *vrc7_s, uint32_t ch, uint8_t type)
 		vibrato_val = calc_vibrato(vrc7_s->vibrato_counter, channel->fNum, channel->octave);
 	else
 		vibrato_val = 0;
-	slot->phase += (uint32_t)(slot->phase_inc + MULT[patch->mult[type]] * vibrato_val) & 0x7ffff;
+	slot->phase += (uint32_t)(slot->phase_inc + MULT[patch->mult[type]] * vibrato_val);
 
 	return output;
 }
 
 static void update_fmam(struct vrc7_sound *vrc7_s) {
 	//Update vibrato counter
-	vrc7_s->vibrato_counter = (vrc7_s->vibrato_counter + 1) & 0x1fff;
+	vrc7_s->vibrato_counter++;
 
 	//Update tremolo value/increment
 	if ((vrc7_s->vibrato_counter & 0x3f) == 0) {
@@ -477,7 +478,7 @@ static void set_instrument(struct vrc7_sound *vrc7_s, uint8_t ch, uint8_t instru
 		channel->slots[type]->phase_inc = calc_phase_inc(channel->fNum, channel->octave, patch->mult[type]);
 		channel->slots[type]->ksl_val = calc_ksl(channel->fNum, channel->octave, patch->key_scale_level[type]);
 		channel->slots[type]->env_rate_low = calc_envelope_rate_low(channel->fNum, channel->octave, patch->key_scale_rate[type]);
-		channel->slots[type]->env_rate_high = calc_envelope_rate_high(patch, type, channel->slots[type]->env_stage, channel->octave, channel->trigger, channel->sustain);
+		channel->slots[type]->env_rate_high = calc_envelope_rate_high(channel, patch, type, channel->slots[type]->env_stage);
 	}
 }
 
@@ -566,7 +567,7 @@ VRC7SOUND_API void vrc7_reset(struct vrc7_sound *vrc7_s) {
 	vrc7_s->zero_count = 0;
 	vrc7_s->mini_counter = 0;
 	vrc7_s->address = 0x00;
-	vrc7_s->channel_mask = (1 << VRC7_NUM_CHANNELS) - 1;
+	vrc7_s->channel_mask = 0;
 
 	for (int i = 0; i < VRC7_NUM_CHANNELS; i++) {
 		vrc7_s->channels[i]->fNum = 0;
@@ -586,7 +587,7 @@ VRC7SOUND_API void vrc7_reset(struct vrc7_sound *vrc7_s) {
 			vrc7_s->channels[i]->slots[type]->ksl_val = 0;
 			vrc7_s->channels[i]->slots[type]->env_rate_high = 0;
 			vrc7_s->channels[i]->slots[type]->env_rate_low = 0;
-			vrc7_s->channels[i]->slots[type]->env_stage = ENV_RELEASE;
+			vrc7_s->channels[i]->slots[type]->env_stage = ENV_DAMPING;
 			vrc7_s->channels[i]->slots[type]->env_value = 0x7f;
 			vrc7_s->channels[i]->slots[type]->env_enabled = false;
 			vrc7_s->channels[i]->slots[type]->restart_env = false;
