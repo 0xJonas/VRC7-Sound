@@ -66,6 +66,9 @@ extern "C" {
 #define MODULATOR 0
 #define CARRIER 1
 
+#define STEREO_LEFT 0
+#define STEREO_RIGHT 1
+
 enum patch_sets {
 	VRC7_NUKE_TONE = 0,
 	VRC7_RW_TONE,
@@ -127,7 +130,8 @@ struct vrc7_channel {
 struct vrc7_sound {
 	struct vrc7_channel *channels[VRC7_NUM_CHANNELS];
 	struct vrc7_patch *patches[VRC7_NUM_PATCHES];
-	int16_t *signal;
+	int16_t *signal[2];
+	double stereo_volume[2][VRC7_NUM_CHANNELS];
 	double clock_rate;
 	double sample_rate;
 	double sample_length;
@@ -156,6 +160,7 @@ VRC7SOUND_API void vrc7_reset(struct vrc7_sound *vrc7_s);
 VRC7SOUND_API void vrc7_clear(struct vrc7_sound *vrc7_s);
 VRC7SOUND_API void vrc7_set_clock_rate(struct vrc7_sound *vrc7_s, double clock_rate);
 VRC7SOUND_API void vrc7_set_sample_rate(struct vrc7_sound *vrc7_s, double sample_rate);
+VRC7SOUND_API void vrc7_set_stereo_volume(struct vrc7_sound *vrc7_s, int side, int channel, double volume);
 VRC7SOUND_API void vrc7_set_patch_set(struct vrc7_sound *vrc7_s, int patch_set);
 VRC7SOUND_API void vrc7_tick(struct vrc7_sound *vrc7_s);
 VRC7SOUND_API int16_t vrc7_fetch_sample(struct vrc7_sound *vrc7_s);

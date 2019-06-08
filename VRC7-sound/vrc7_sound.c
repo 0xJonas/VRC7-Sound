@@ -534,14 +534,16 @@ VRC7SOUND_API struct vrc7_sound *vrc7_new() {
 		vrc7_s->patches[i] = (struct vrc7_patch *) calloc(1,sizeof(struct vrc7_patch));
 	}
 
-	vrc7_s->signal = calloc(VRC7_SIGNAL_CHUNK_LENGTH, sizeof(int16_t));
+	vrc7_s->signal[STEREO_LEFT] = calloc(VRC7_SIGNAL_CHUNK_LENGTH, sizeof(int16_t));
+	vrc7_s->signal[STEREO_RIGHT] = calloc(VRC7_SIGNAL_CHUNK_LENGTH, sizeof(int16_t));
 
 	vrc7_reset(vrc7_s);
 	return vrc7_s;
 }
 
 VRC7SOUND_API void vrc7_delete(struct vrc7_sound *vrc7_s) {
-	free(vrc7_s->signal);
+	free(vrc7_s->signal[STEREO_LEFT]);
+	free(vrc7_s->signal[STEREO_RIGHT]);
 
 	for (int i = 0; i < VRC7_NUM_PATCHES; i++) {
 		free(vrc7_s->patches[i]);
@@ -576,6 +578,8 @@ VRC7SOUND_API void vrc7_reset(struct vrc7_sound *vrc7_s) {
 		vrc7_s->channels[i]->instrument = 0;
 		vrc7_s->channels[i]->sustain = false;
 		vrc7_s->channels[i]->trigger = false;
+		vrc7_s->stereo_volume[STEREO_LEFT][i] = 1.0;
+		vrc7_s->stereo_volume[STEREO_RIGHT][i] = 1.0;
 
 		for (int j = 0; j < 2; j++) {
 			int type = j == 0 ? MODULATOR : CARRIER;
@@ -615,6 +619,10 @@ VRC7SOUND_API void vrc7_set_sample_rate(struct vrc7_sound *vrc7_s, double sample
 	vrc7_s->current_time = 0.0f;
 }
 
+VRC7SOUND_API void vrc7_set_stereo_volume(struct vrc7_sound *vrc7_s, int side, int channel, double volume) {
+	vrc7_s->stereo_volume[side][channel] = volume;
+}
+
 VRC7SOUND_API void vrc7_set_patch_set(struct vrc7_sound *vrc7_s, int set) {
 	for (int i = 0; i < VRC7_NUM_PATCHES; i++) {
 		vrc7_get_default_patch(set, i, vrc7_s->patches[i]);
@@ -625,14 +633,16 @@ VRC7SOUND_API void vrc7_set_patch_set(struct vrc7_sound *vrc7_s, int set) {
 VRC7SOUND_API void vrc7_tick(struct vrc7_sound *vrc7_s) {
 	//Update channels
 	for (int i = 0; i < 18; i++) {
-		vrc7_s->signal[i * 4 + 0] = 0;
-		vrc7_s->signal[i * 4 + 1] = 0;
-		vrc7_s->signal[i * 4 + 2] = 0;
-		vrc7_s->signal[i * 4 + 3] = 0;
+		vrc7_s->signal[STEREO_LEFT][i * 4 + 0] = vrc7_s->signal[STEREO_RIGHT][i * 4 + 0] = 0;
+		vrc7_s->signal[STEREO_LEFT][i * 4 + 1] = vrc7_s->signal[STEREO_RIGHT][i * 4 + 1] = 0;
+		vrc7_s->signal[STEREO_LEFT][i * 4 + 2] = vrc7_s->signal[STEREO_RIGHT][i * 4 + 2] = 0;
+		vrc7_s->signal[STEREO_LEFT][i * 4 + 3] = vrc7_s->signal[STEREO_RIGHT][i * 4 + 3] = 0;
 		if (CHANNEL_SCHEDULE[i] < VRC7_NUM_CHANNELS) {
-			int32_t val = update_slot(vrc7_s, CHANNEL_SCHEDULE[i], TYPE_SCHEDULE[i]);
-			if (!BIT_TEST(vrc7_s->channel_mask, CHANNEL_SCHEDULE[i]) && TYPE_SCHEDULE[i] == CARRIER) {
-				vrc7_s->signal[i * 4] = val >> 3;
+			int channel_num = CHANNEL_SCHEDULE[i];
+			int32_t val = update_slot(vrc7_s, channel_num, TYPE_SCHEDULE[i]);
+			if (!BIT_TEST(vrc7_s->channel_mask, channel_num) && TYPE_SCHEDULE[i] == CARRIER) {
+				vrc7_s->signal[STEREO_LEFT][i * 4] = (int16_t) ((val >> 3) * vrc7_s->stereo_volume[STEREO_LEFT][channel_num]);
+				vrc7_s->signal[STEREO_RIGHT][i * 4] = (int16_t) ((val >> 3) * vrc7_s->stereo_volume[STEREO_RIGHT][channel_num]);
 			}
 		}
 #ifdef VRC7_TEST_REG
@@ -658,16 +668,19 @@ VRC7SOUND_API void vrc7_tick(struct vrc7_sound *vrc7_s) {
 	}
 
 	//Filter output
-	static double prev_input = 0.0;
-	static double prev_output = 0.0;
+	static double prev_input[2] = { 0.0,0.0 };
+	static double prev_output[2] = { 0.0,0.0 };
 	for (int i = 0; i < VRC7_SIGNAL_CHUNK_LENGTH; i++) {
-		double output =   prev_input*vrc7_s->fir_coeff
-						+ vrc7_s->signal[i] * vrc7_s->fir_coeff
-						+ prev_output * vrc7_s->iir_coeff;
-		prev_input = vrc7_s->signal[i];
-		prev_output = output;
+		for (int j = 0; j < 2; j++) {
+			int side = j == 1 ? STEREO_RIGHT : STEREO_LEFT;
+			double output = prev_input[side] * vrc7_s->fir_coeff
+				+ vrc7_s->signal[side][i] * vrc7_s->fir_coeff
+				+ prev_output[side] * vrc7_s->iir_coeff;
+			prev_input[side] = vrc7_s->signal[side][i];
+			prev_output[side] = output;
 
-		vrc7_s->signal[i] = (int16_t)(output * VRC7_AMPLIFIER_GAIN * 256);	//Arbitrary constant, but seems to fit
+			vrc7_s->signal[side][i] = (int16_t)(output * VRC7_AMPLIFIER_GAIN * 256);	//Arbitrary constant, but seems to fit
+		}
 	}
 }
 
