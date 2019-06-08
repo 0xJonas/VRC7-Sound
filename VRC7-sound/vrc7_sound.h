@@ -128,10 +128,17 @@ struct vrc7_channel {
 };
 
 struct vrc7_sound {
+	//Read & Write:
+	uint32_t channel_mask;
+	void(*filter)(struct vrc7_sound *vrc7_s);
+	double stereo_volume[2][VRC7_NUM_CHANNELS];
+
+	//Read only:
+	int16_t *signal[2];
+
+	//private:
 	struct vrc7_channel *channels[VRC7_NUM_CHANNELS];
 	struct vrc7_patch *patches[VRC7_NUM_PATCHES];
-	int16_t *signal[2];
-	double stereo_volume[2][VRC7_NUM_CHANNELS];
 	double clock_rate;
 	double sample_rate;
 	double sample_length;
@@ -144,14 +151,16 @@ struct vrc7_sound {
 	uint8_t mini_counter;
 	int patch_set;
 	uint8_t address;
-	double fir_coeff;
-	double iir_coeff;
+
+	float fir_coeff;
+	float iir_coeff;
+	float fir_coeff_fast;
+	float iir_coeff_fast;
 
 	bool test_envelope;
 	bool test_halt_phase;
 	bool test_counters;
 
-	uint32_t channel_mask;
 };
 
 VRC7SOUND_API struct vrc7_sound *vrc7_new();
@@ -160,10 +169,9 @@ VRC7SOUND_API void vrc7_reset(struct vrc7_sound *vrc7_s);
 VRC7SOUND_API void vrc7_clear(struct vrc7_sound *vrc7_s);
 VRC7SOUND_API void vrc7_set_clock_rate(struct vrc7_sound *vrc7_s, double clock_rate);
 VRC7SOUND_API void vrc7_set_sample_rate(struct vrc7_sound *vrc7_s, double sample_rate);
-VRC7SOUND_API void vrc7_set_stereo_volume(struct vrc7_sound *vrc7_s, int side, int channel, double volume);
 VRC7SOUND_API void vrc7_set_patch_set(struct vrc7_sound *vrc7_s, int patch_set);
 VRC7SOUND_API void vrc7_tick(struct vrc7_sound *vrc7_s);
-VRC7SOUND_API int16_t vrc7_fetch_sample(struct vrc7_sound *vrc7_s);
+VRC7SOUND_API void vrc7_fetch_sample(struct vrc7_sound *vrc7_s, int16_t *sample);
 
 VRC7SOUND_API void vrc7_write_addr(struct vrc7_sound *vrc7_s, unsigned char addr);
 VRC7SOUND_API void vrc7_write_data(struct vrc7_sound *vrc7_s, unsigned char data);
@@ -172,9 +180,10 @@ VRC7SOUND_API void vrc7_patch_to_reg(struct vrc7_patch *patch, unsigned char *re
 VRC7SOUND_API void vrc7_reg_to_patch(unsigned const char *reg, struct vrc7_patch *patch);
 VRC7SOUND_API void vrc7_get_default_patch(int set, uint32_t index, struct vrc7_patch *patch);
 
-#ifdef _DEBUG
-VRC7SOUND_API void test();
-#endif
+VRC7SOUND_API void vrc7_filter_raw(struct vrc7_sound *vrc7_s);
+VRC7SOUND_API void vrc7_filter_no_filter(struct vrc7_sound *vrc7_s);
+VRC7SOUND_API void vrc7_filter_lagrange_point(struct vrc7_sound *vrc7_s);
+VRC7SOUND_API void vrc7_filter_lagrange_point_fast(struct vrc7_sound *vrc7_s);
 
 #ifdef __cplusplus
 }

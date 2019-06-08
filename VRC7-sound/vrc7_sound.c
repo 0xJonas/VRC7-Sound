@@ -570,6 +570,7 @@ VRC7SOUND_API void vrc7_reset(struct vrc7_sound *vrc7_s) {
 	vrc7_s->mini_counter = 0;
 	vrc7_s->address = 0x00;
 	vrc7_s->channel_mask = 0;
+	vrc7_s->filter = vrc7_filter_lagrange_point_fast;
 
 	for (int i = 0; i < VRC7_NUM_CHANNELS; i++) {
 		vrc7_s->channels[i]->fNum = 0;
@@ -609,18 +610,17 @@ VRC7SOUND_API void vrc7_set_clock_rate(struct vrc7_sound *vrc7_s, double clock_r
 	vrc7_s->clock_rate = clock_rate;
 	double alpha1 = 27000.0 + 33000.0;
 	double alpha2 = 0.0047 * 27.0 * 33.0 * 2.0 * clock_rate; //0.0000000047*27000.0*33000.0*2.0*clock_rate;
-	vrc7_s->fir_coeff = 33000.0/(alpha1+alpha2);
-	vrc7_s->iir_coeff = -(alpha1 - alpha2) / (alpha1 + alpha2);
+	double alpha2_fast = 0.0047 * 27.0 * 33.0 * 2.0 * clock_rate / 72.0; //0.0000000047*27000.0*33000.0*2.0*clock_rate;
+	vrc7_s->fir_coeff = (float) (33000.0/(alpha1+alpha2));
+	vrc7_s->iir_coeff = (float) (-(alpha1 - alpha2) / (alpha1 + alpha2));
+	vrc7_s->fir_coeff_fast = (float)(33000.0 / (alpha1 + alpha2_fast));
+	vrc7_s->iir_coeff_fast = (float)(-(alpha1 - alpha2_fast) / (alpha1 + alpha2_fast));
 }
 
 VRC7SOUND_API void vrc7_set_sample_rate(struct vrc7_sound *vrc7_s, double sample_rate) {
 	vrc7_s->sample_rate = sample_rate;
 	vrc7_s->sample_length = vrc7_s->clock_rate / sample_rate;
 	vrc7_s->current_time = 0.0f;
-}
-
-VRC7SOUND_API void vrc7_set_stereo_volume(struct vrc7_sound *vrc7_s, int side, int channel, double volume) {
-	vrc7_s->stereo_volume[side][channel] = volume;
 }
 
 VRC7SOUND_API void vrc7_set_patch_set(struct vrc7_sound *vrc7_s, int set) {
@@ -667,31 +667,17 @@ VRC7SOUND_API void vrc7_tick(struct vrc7_sound *vrc7_s) {
 #endif
 	}
 
-	//Filter output
-	static double prev_input[2] = { 0.0,0.0 };
-	static double prev_output[2] = { 0.0,0.0 };
-	for (int i = 0; i < VRC7_SIGNAL_CHUNK_LENGTH; i++) {
-		for (int j = 0; j < 2; j++) {
-			int side = j == 1 ? STEREO_RIGHT : STEREO_LEFT;
-			double output = prev_input[side] * vrc7_s->fir_coeff
-				+ vrc7_s->signal[side][i] * vrc7_s->fir_coeff
-				+ prev_output[side] * vrc7_s->iir_coeff;
-			prev_input[side] = vrc7_s->signal[side][i];
-			prev_output[side] = output;
-
-			vrc7_s->signal[side][i] = (int16_t)(output * VRC7_AMPLIFIER_GAIN * 256);	//Arbitrary constant, but seems to fit
-		}
-	}
+	vrc7_s->filter(vrc7_s);
 }
 
-VRC7SOUND_API int16_t vrc7_fetch_sample(struct vrc7_sound *vrc7_s) {
+VRC7SOUND_API void vrc7_fetch_sample(struct vrc7_sound *vrc7_s, int16_t *sample) {
 	while (vrc7_s->current_time >= VRC7_SIGNAL_CHUNK_LENGTH) {
 		vrc7_tick(vrc7_s);
 		vrc7_s->current_time -= VRC7_SIGNAL_CHUNK_LENGTH;
 	}
-	int16_t sample = vrc7_s->signal[(int) vrc7_s->current_time];
+	sample[0] = vrc7_s->signal[STEREO_LEFT][(int) vrc7_s->current_time];
+	sample[1] = vrc7_s->signal[STEREO_RIGHT][(int)vrc7_s->current_time];
 	vrc7_s->current_time += vrc7_s->sample_length;
-	return sample;
 }
 
 /*
@@ -887,4 +873,70 @@ VRC7SOUND_API void vrc7_reg_to_patch(unsigned const char *reg, struct vrc7_patch
 VRC7SOUND_API void vrc7_get_default_patch(int set, uint32_t index, struct vrc7_patch *patch) {
 	unsigned const char *start = DEFAULT_INST[set] + index * 16 * sizeof(unsigned char);
 	vrc7_reg_to_patch(start, patch);
+}
+
+VRC7SOUND_API void vrc7_filter_raw(struct vrc7_sound *vrc7_s) {
+	//Nothing
+}
+
+VRC7SOUND_API void vrc7_filter_no_filter(struct vrc7_sound *vrc7_s) {
+	for (int i = 0; i < 2; i++) {
+		int side = i == 1 ? STEREO_RIGHT : STEREO_LEFT;
+		int16_t sum = 0;
+		for (int j = 0; j < VRC7_SIGNAL_CHUNK_LENGTH; j++) {
+			sum += vrc7_s->signal[side][j];
+		}
+		sum <<= 6;
+		for (int j = 0; j < VRC7_SIGNAL_CHUNK_LENGTH; j++) {
+			vrc7_s->signal[side][j] = sum;
+		}
+	}
+}
+
+VRC7SOUND_API void vrc7_filter_lagrange_point(struct vrc7_sound *vrc7_s) {
+	static float prev_input[2] = { 0.0,0.0 };
+	static float prev_output[2] = { 0.0,0.0 };
+	float fir = vrc7_s->fir_coeff;
+	float iir = vrc7_s->iir_coeff;
+	for (int i = 0; i < 2; i++) {
+		int side = i == 1 ? STEREO_RIGHT : STEREO_LEFT;
+		for (int j = 0; j < VRC7_SIGNAL_CHUNK_LENGTH; j++) {
+			float output = prev_input[side] * fir
+				+ vrc7_s->signal[side][j] * fir
+				+ prev_output[side] * iir;
+			prev_input[side] = vrc7_s->signal[side][j];
+			prev_output[side] = output;
+
+			vrc7_s->signal[side][j] = (int16_t)(output * VRC7_AMPLIFIER_GAIN * 256);	//Arbitrary constant, but seems to fit
+		}
+	}
+}
+
+VRC7SOUND_API void vrc7_filter_lagrange_point_fast(struct vrc7_sound *vrc7_s) {
+	static float prev_input[2] = { 0.0,0.0 };
+	static float prev_output[2] = { 0.0,0.0 };
+	float fir = vrc7_s->fir_coeff_fast;
+	float iir = vrc7_s->iir_coeff_fast;
+
+	for (int i = 0; i < 2; i++) {
+		int side = i == 1 ? STEREO_RIGHT : STEREO_LEFT;
+		int16_t sum = 0;
+
+		for (int j = 0; j < VRC7_SIGNAL_CHUNK_LENGTH; j++) {
+			sum += vrc7_s->signal[side][j];
+		}
+
+		float output = prev_input[side] * fir
+			+ sum * fir
+			+ prev_output[side] * iir;
+
+		prev_input[side] = sum;
+		prev_output[side] = output;
+
+		output = (float) (output * VRC7_AMPLIFIER_GAIN * 3.35);
+
+		for (int j = 0; j < VRC7_SIGNAL_CHUNK_LENGTH; j++) {
+			vrc7_s->signal[side][j] = (int16_t) output;
+		}
+	}
 }
