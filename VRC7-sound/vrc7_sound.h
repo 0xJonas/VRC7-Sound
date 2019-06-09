@@ -82,45 +82,45 @@ enum patch_sets {
 };
 
 struct vrc7_patch {
-	uint8_t feedback;
-	uint8_t total_level;
-	uint8_t mult[2];
+	uint32_t feedback;
+	uint32_t total_level;
+	uint32_t mult[2];
 	bool vibrato[2];
 	bool tremolo[2];
 	bool sustained[2];
 	bool rect[2];
 	bool key_scale_rate[2];
-	uint8_t key_scale_level[2];
+	uint32_t key_scale_level[2];
 
-	uint8_t attack_rate[2];
-	uint8_t decay_rate[2];
-	uint8_t sustain_level[2];
-	uint8_t release_rate[2];
+	uint32_t attack_rate[2];
+	uint32_t decay_rate[2];
+	uint32_t sustain_level[2];
+	uint32_t release_rate[2];
 };
 
 struct vrc7_slot {
-	uint8_t type;
+	uint32_t type;
 	int32_t sample;
 	int32_t sample_prev;
 
 	uint32_t phase;
 	uint32_t phase_inc;
 
-	uint8_t ksl_val;
+	uint32_t ksl_val;
 
-	uint8_t env_rate_high;
-	uint8_t env_rate_low;
-	uint8_t env_stage;
-	uint8_t env_value;
+	uint32_t env_rate_high;
+	uint32_t env_rate_low;
+	uint32_t env_stage;
+	uint32_t env_value;
 	bool env_enabled;
 	bool restart_env;
 };
 
 struct vrc7_channel {
-	uint8_t instrument;
-	uint16_t fNum;
-	uint8_t octave;
-	uint8_t volume;
+	uint32_t instrument;
+	uint32_t fNum;
+	uint32_t octave;
+	uint32_t volume;
 	bool sustain;
 	bool trigger;
 
@@ -148,9 +148,9 @@ struct vrc7_sound {
 	int32_t tremolo_inc;
 	uint32_t envelope_counter;
 	uint32_t zero_count;
-	uint8_t mini_counter;
+	uint32_t mini_counter;
 	int patch_set;
-	uint8_t address;
+	uint32_t address;
 
 	float fir_coeff;
 	float iir_coeff;
@@ -163,7 +163,7 @@ struct vrc7_sound {
 
 };
 
-VRC7SOUND_API struct vrc7_sound *vrc7_new();
+VRC7SOUND_API struct vrc7_sound *vrc7_new(void);
 VRC7SOUND_API void vrc7_delete(struct vrc7_sound *vrc7_s);
 VRC7SOUND_API void vrc7_reset(struct vrc7_sound *vrc7_s);
 VRC7SOUND_API void vrc7_clear(struct vrc7_sound *vrc7_s);
@@ -173,8 +173,8 @@ VRC7SOUND_API void vrc7_set_patch_set(struct vrc7_sound *vrc7_s, int patch_set);
 VRC7SOUND_API void vrc7_tick(struct vrc7_sound *vrc7_s);
 VRC7SOUND_API void vrc7_fetch_sample(struct vrc7_sound *vrc7_s, int16_t *sample);
 
-VRC7SOUND_API void vrc7_write_addr(struct vrc7_sound *vrc7_s, unsigned char addr);
-VRC7SOUND_API void vrc7_write_data(struct vrc7_sound *vrc7_s, unsigned char data);
+VRC7SOUND_API void vrc7_write_addr(struct vrc7_sound *vrc7_s, uint32_t addr);
+VRC7SOUND_API void vrc7_write_data(struct vrc7_sound *vrc7_s, uint32_t data);
 
 VRC7SOUND_API void vrc7_patch_to_reg(struct vrc7_patch *patch, unsigned char *reg);
 VRC7SOUND_API void vrc7_reg_to_patch(unsigned const char *reg, struct vrc7_patch *patch);

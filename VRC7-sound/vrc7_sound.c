@@ -33,12 +33,8 @@ Lagrange point filter analysis by kevtris:
 
 #include "vrc7_sound.h"
 
-#include <stdio.h>
 #include <math.h>
 #include <stdlib.h>
-#include <stdint.h>
-#include <stdbool.h>
-#include <stdio.h>
 
 #define BIT_TEST(a,b) ((a & (1<<(b)))!=0)
 
@@ -59,7 +55,7 @@ Lagrange point filter analysis by kevtris:
 //1 + 240,000 / 4,300
 #define VRC7_AMPLIFIER_GAIN 56.81395349
 
-static unsigned const char DEFAULT_INST[VRC7_NUM_PATCH_SETS][(16 + 3) * 16] = {
+static const uint8_t DEFAULT_INST[VRC7_NUM_PATCH_SETS][(16 + 3) * 16] = {
   {
 #include "patch-sets/vrc7tone_nuke.h"
   },
@@ -93,11 +89,11 @@ static const double MULT[16] = {0.125, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.
 
 static const uint16_t KSL[16] = { 0, 32, 40, 45, 48, 51, 53, 55, 56, 58, 59, 60, 61, 62, 63, 64 };
 
-static const uint8_t KSL_SHIFT[4] = { 7,1,2,0 };
+static const uint32_t KSL_SHIFT[4] = { 7,1,2,0 };
 
 static const int8_t FEEDBACK_SHIFT[8] = { 7, 6, 5, 4, 3, 2, 1, 0 };
 
-static const uint8_t TYPE_SCHEDULE[18] = { MODULATOR,MODULATOR,
+static const uint32_t TYPE_SCHEDULE[18] = { MODULATOR,MODULATOR,
 										CARRIER,CARRIER ,CARRIER ,
 										MODULATOR,MODULATOR ,MODULATOR ,
 										CARRIER ,CARRIER ,CARRIER,
@@ -105,7 +101,7 @@ static const uint8_t TYPE_SCHEDULE[18] = { MODULATOR,MODULATOR,
 										CARRIER ,CARRIER ,CARRIER,
 										MODULATOR };
 
-static const uint8_t CHANNEL_SCHEDULE[18] = { 1,2,0,1,2,3,4,5,3,4,5,6,7,8,6,7,8,0 };
+static const uint32_t CHANNEL_SCHEDULE[18] = { 1,2,0,1,2,3,4,5,3,4,5,6,7,8,6,7,8,0 };
 
 static const bool ENV_TABLE[4][4] = {
 	{false,false,false,false},
@@ -129,7 +125,7 @@ static uint32_t logsin[LOGSIN_TABLE_LEN];
 
 static uint16_t fast_exp[FAST_EXP_TABLE_LEN];
 
-static void make_tables() {
+static void make_tables(void) {
 	static bool tables_initialized = false;
 	if (tables_initialized)
 		return;
@@ -182,36 +178,36 @@ static int32_t calc_vibrato(uint32_t vibrato_counter, uint32_t fNum, uint32_t oc
 	return vib_value<<(octave+1);
 }
 
-static uint32_t calc_phase_inc(uint32_t fNum, uint32_t octave, uint8_t mult) {
+static uint32_t calc_phase_inc(uint32_t fNum, uint32_t octave, uint32_t mult) {
 	//Calculate phase increment
 	int phase_inc = fNum << (octave + 2);
 	return (int)(phase_inc*MULT[mult]);
 }
 
-static uint8_t calc_ksl(uint32_t fNum, uint32_t octave, uint8_t ksl_index) {
+static uint32_t calc_ksl(uint32_t fNum, uint32_t octave, uint32_t ksl_index) {
 	//Calculate attenuation due to key level scaling
 	int32_t ksl_val = KSL[fNum >> 5] - ((8 - octave) << 3);
 	ksl_val = max(ksl_val, 0);
 	return (ksl_val << 1) >> KSL_SHIFT[ksl_index];
 }
 
-static uint8_t calc_envelope_rate_low(uint32_t fNum, uint32_t octave, bool ksr) {
+static uint32_t calc_envelope_rate_low(uint32_t fNum, uint32_t octave, bool ksr) {
 	//Calculate low envelope rate, which is basically the LSBs of the key rate scaling value
-	uint8_t ksr_inc = (octave << 1) + (fNum >> 8);
+	uint32_t ksr_inc = (octave << 1) + (fNum >> 8);
 	if (!ksr)
 		ksr_inc >>= 2;
 
 	return ksr_inc & 0b11;
 }
 
-static uint8_t calc_envelope_rate_high(struct vrc7_channel *channel, struct vrc7_patch *patch, uint8_t type, uint8_t env_stage) {
+static uint32_t calc_envelope_rate_high(struct vrc7_channel *channel, struct vrc7_patch *patch, uint32_t type, uint32_t env_stage) {
 	//key rate scaling
-	uint8_t key_scale = 0;
+	uint32_t key_scale = 0;
 	if (patch->key_scale_rate[type])
 		key_scale = channel->octave >> 1;
 
 	//Set rate based on current envelope stage
-	uint8_t rate_high = 0;
+	uint32_t rate_high = 0;
 	switch (env_stage) {
 	case ENV_ATTACK: 
 		rate_high = patch->attack_rate[type] + key_scale;
@@ -263,7 +259,7 @@ static int32_t calc_operator(uint32_t phase, int32_t mod_phase, uint32_t volume,
 	return output;
 }
 
-static void set_envelope_stage(struct vrc7_sound *vrc7_s,uint8_t ch, uint8_t type, uint8_t stage) {
+static void set_envelope_stage(struct vrc7_sound *vrc7_s,uint32_t ch, uint32_t type, uint32_t stage) {
 	struct vrc7_channel *channel = vrc7_s->channels[ch];
 	struct vrc7_patch *patch = vrc7_s->patches[channel->instrument];
 	struct vrc7_slot *slot = channel->slots[type];
@@ -273,13 +269,13 @@ static void set_envelope_stage(struct vrc7_sound *vrc7_s,uint8_t ch, uint8_t typ
 	slot->env_rate_high = calc_envelope_rate_high(channel, patch, type, stage);
 }
 
-static void update_envelope(struct vrc7_sound *vrc7_s, uint32_t ch,uint8_t type) {
+static void update_envelope(struct vrc7_sound *vrc7_s, uint32_t ch,uint32_t type) {
 	struct vrc7_channel *channel = vrc7_s->channels[ch];
 	struct vrc7_patch *patch = vrc7_s->patches[channel->instrument];
 	struct vrc7_slot *slot = channel->slots[type];
 	
-	uint8_t rate_high = slot->env_rate_high;
-	uint8_t rate_low = slot->env_rate_low;
+	uint32_t rate_high = slot->env_rate_high;
+	uint32_t rate_low = slot->env_rate_low;
 	bool env_enabled = slot->env_enabled;
 
 	//Check whether to update the envelope 'naturally'
@@ -299,10 +295,10 @@ static void update_envelope(struct vrc7_sound *vrc7_s, uint32_t ch,uint8_t type)
 	bool mini_odd = (vrc7_s->mini_counter & 1) == 0;
 
 	//Setup the four different increment values
-	int inc1 = slot->env_stage == ENV_ATTACK ? -slot->env_value >> 1 : 0;
-	int inc2 = slot->env_stage == ENV_ATTACK ? -slot->env_value >> 2 : 0;
-	int inc3 = slot->env_stage == ENV_ATTACK ? -slot->env_value >> 3 : 0;
-	int inc4 = slot->env_stage == ENV_ATTACK ? -slot->env_value >> 4 : 0;
+	int inc1 = slot->env_stage == ENV_ATTACK ? (~slot->env_value + 1) >> 1 : 0;
+	int inc2 = slot->env_stage == ENV_ATTACK ? (~slot->env_value + 1) >> 2 : 0;
+	int inc3 = slot->env_stage == ENV_ATTACK ? (~slot->env_value + 1) >> 3 : 0;
+	int inc4 = slot->env_stage == ENV_ATTACK ? (~slot->env_value + 1) >> 4 : 0;
 	if (env_enabled) {
 		inc1 |= 2;
 		inc2 |= 1;
@@ -329,7 +325,7 @@ static void update_envelope(struct vrc7_sound *vrc7_s, uint32_t ch,uint8_t type)
 		env_inc |= inc1;
 
 	//Update the envelope value in a weird way
-	uint8_t env_value = (slot->env_value + env_inc) & 0x7f;
+	uint32_t env_value = (slot->env_value + env_inc) & 0x7f;
 	
 	//Update envelope stage
 	//Restart envelope
@@ -356,7 +352,7 @@ static void update_envelope(struct vrc7_sound *vrc7_s, uint32_t ch,uint8_t type)
 	}
 
 	//Check if sustain level has been reached
-	uint8_t sustain_level = patch->sustain_level[type];
+	uint32_t sustain_level = patch->sustain_level[type];
 	if (slot->env_stage == ENV_DECAY && env_value >> 3 == sustain_level) {
 		set_envelope_stage(vrc7_s, ch, type, ENV_RELEASE);
 	}
@@ -376,7 +372,7 @@ static void update_envelope(struct vrc7_sound *vrc7_s, uint32_t ch,uint8_t type)
 	slot->env_enabled = env_enabled;
 }
 
-static int32_t update_slot(struct vrc7_sound *vrc7_s, uint32_t ch, uint8_t type) {
+static int32_t update_slot(struct vrc7_sound *vrc7_s, uint32_t ch, uint32_t type) {
 	struct vrc7_channel *channel = vrc7_s->channels[ch];
 	struct vrc7_patch *patch = vrc7_s->patches[channel->instrument];
 	struct vrc7_slot *slot = channel->slots[type];
@@ -467,7 +463,7 @@ static void update_envelope_counters(struct vrc7_sound *vrc7_s){
 		vrc7_s->zero_count = 0;
 }
 
-static void set_instrument(struct vrc7_sound *vrc7_s, uint8_t ch, uint8_t instrument) {
+static void set_instrument(struct vrc7_sound *vrc7_s, uint32_t ch, uint32_t instrument) {
 	struct vrc7_channel *channel = vrc7_s->channels[ch];
 	struct vrc7_patch *patch = vrc7_s->patches[instrument];
 	channel->instrument = instrument;
@@ -482,7 +478,7 @@ static void set_instrument(struct vrc7_sound *vrc7_s, uint8_t ch, uint8_t instru
 	}
 }
 
-static void set_fnum(struct vrc7_sound *vrc7_s, uint8_t ch, uint32_t fNum) {
+static void set_fnum(struct vrc7_sound *vrc7_s, uint32_t ch, uint32_t fNum) {
 	struct vrc7_channel *channel = vrc7_s->channels[ch];
 	struct vrc7_patch *patch = vrc7_s->patches[channel->instrument];
 	channel->fNum = fNum;
@@ -495,7 +491,7 @@ static void set_fnum(struct vrc7_sound *vrc7_s, uint8_t ch, uint32_t fNum) {
 	}
 }
 
-static void set_octave(struct vrc7_sound *vrc7_s, uint8_t ch, uint32_t octave) {
+static void set_octave(struct vrc7_sound *vrc7_s, uint32_t ch, uint32_t octave) {
 	vrc7_s->channels[ch]->octave = octave;
 
 	//Setting the instrument to itself, since it is the exact same code that would otherwise go here
@@ -503,7 +499,6 @@ static void set_octave(struct vrc7_sound *vrc7_s, uint8_t ch, uint32_t octave) {
 }
 
 static void update_user_tone(struct vrc7_sound *vrc7_s) {
-	struct vrc7_patch *user_tone = vrc7_s->patches[0];
 	for (int i = 0; i < VRC7_NUM_CHANNELS; i++) {
 		if (vrc7_s->channels[i]->instrument != 0)
 			continue;
@@ -519,7 +514,7 @@ static void update_user_tone(struct vrc7_sound *vrc7_s) {
 ==================================================
 */
 
-VRC7SOUND_API struct vrc7_sound *vrc7_new() {
+VRC7SOUND_API struct vrc7_sound *vrc7_new(void) {
 	make_tables();
 
 	struct vrc7_sound *vrc7_s = (struct vrc7_sound *) calloc(1,sizeof(struct vrc7_sound));
@@ -686,11 +681,11 @@ VRC7SOUND_API void vrc7_fetch_sample(struct vrc7_sound *vrc7_s, int16_t *sample)
 ==================================================
 */
 
-VRC7SOUND_API void vrc7_write_addr(struct vrc7_sound *vrc7_s, unsigned char addr) {
+VRC7SOUND_API void vrc7_write_addr(struct vrc7_sound *vrc7_s, uint32_t addr) {
 	vrc7_s->address = addr;
 }
 
-VRC7SOUND_API void vrc7_write_data(struct vrc7_sound *vrc7_s, unsigned char data) {
+VRC7SOUND_API void vrc7_write_data(struct vrc7_sound *vrc7_s, uint32_t data) {
 	int channel_num = vrc7_s->address & 0x0f;
 	struct vrc7_patch *user_tone = vrc7_s->patches[0];
 
@@ -792,44 +787,44 @@ VRC7SOUND_API void vrc7_write_data(struct vrc7_sound *vrc7_s, unsigned char data
 ==================================================
 */
 
-VRC7SOUND_API void vrc7_patch_to_reg(struct vrc7_patch *patch, unsigned char *reg) {
-	unsigned char byte = patch->mult[MODULATOR];
+VRC7SOUND_API void vrc7_patch_to_reg(struct vrc7_patch *patch, uint8_t *reg) {
+	uint8_t byte = (uint8_t) patch->mult[MODULATOR];
 	byte |= patch->key_scale_rate[MODULATOR] ? 0x10 : 0;
 	byte |= patch->sustained[MODULATOR] ? 0x20 : 0;
 	byte |= patch->vibrato[MODULATOR] ? 0x40 : 0;
 	byte |= patch->tremolo[MODULATOR] ? 0x80 : 0;
 	reg[0] = byte;
 
-	byte = patch->mult[CARRIER];
+	byte = (uint8_t)patch->mult[CARRIER];
 	byte |= patch->key_scale_rate[CARRIER] ? 0x10 : 0;
 	byte |= patch->sustained[CARRIER] ? 0x20 : 0;
 	byte |= patch->vibrato[CARRIER] ? 0x40 : 0;
 	byte |= patch->tremolo[CARRIER] ? 0x80 : 0;
 	reg[1] = byte;
 
-	byte = patch->total_level;
+	byte = (uint8_t)patch->total_level;
 	byte |= patch->key_scale_level[MODULATOR] << 6;
 	reg[2] = byte;
 
-	byte = patch->feedback;
+	byte = (uint8_t)patch->feedback;
 	byte |= patch->rect[MODULATOR] ? 0x08 : 0;
 	byte |= patch->rect[CARRIER] ? 0x10 : 0;
 	byte |= patch->key_scale_level[CARRIER] << 6;
 	reg[3] = byte;
 
-	byte = patch->decay_rate[MODULATOR];
+	byte = (uint8_t)patch->decay_rate[MODULATOR];
 	byte |= patch->attack_rate[MODULATOR] <<4;
 	reg[4] = byte;
 
-	byte = patch->decay_rate[CARRIER];
+	byte = (uint8_t)patch->decay_rate[CARRIER];
 	byte |= patch->attack_rate[CARRIER] <<4;
 	reg[5] = byte;
 
-	byte = patch->release_rate[MODULATOR];
+	byte = (uint8_t)patch->release_rate[MODULATOR];
 	byte |= patch->sustain_level[MODULATOR] <<4;
 	reg[6] = byte;
 
-	byte = patch->release_rate[CARRIER];
+	byte = (uint8_t)patch->release_rate[CARRIER];
 	byte |= patch->sustain_level[CARRIER] <<4;
 	reg[7] = byte;
 }
@@ -876,6 +871,7 @@ VRC7SOUND_API void vrc7_get_default_patch(int set, uint32_t index, struct vrc7_p
 }
 
 VRC7SOUND_API void vrc7_filter_raw(struct vrc7_sound *vrc7_s) {
+	(void)vrc7_s;
 	//Nothing
 }
 
