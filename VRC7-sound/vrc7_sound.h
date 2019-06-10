@@ -158,6 +158,7 @@ struct vrc7_sound {
 	float iir_coeff_fast;
 
 	bool test_envelope;
+	bool test_reset_fmam;
 	bool test_halt_phase;
 	bool test_counters;
 

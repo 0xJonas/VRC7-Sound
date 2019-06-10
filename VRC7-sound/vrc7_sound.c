@@ -440,6 +440,14 @@ static void update_fmam(struct vrc7_sound *vrc7_s) {
 		if (vrc7_s->tremolo_value >= 0x69 || vrc7_s->tremolo_value <= 0)
 			vrc7_s->tremolo_inc *= -1;
 	}
+
+#ifdef VRC7_TEST_REG
+	if (vrc7_s->test_reset_fmam) {
+		vrc7_s->vibrato_counter = 0;
+		vrc7_s->tremolo_value = 0;
+		vrc7_s->tremolo_inc = 1;
+	}
+#endif
 }
 
 static void update_envelope_counters(struct vrc7_sound *vrc7_s){
@@ -749,7 +757,7 @@ VRC7SOUND_API void vrc7_write_data(struct vrc7_sound *vrc7_s, uint32_t data) {
 		break;
 	case 0x0f:	//Test register
 		vrc7_s->test_envelope = BIT_TEST(data, 0);
-		//vrc7_s->test_noise = BIT_TEST(data, 1); 
+		vrc7_s->test_reset_fmam = BIT_TEST(data, 1); 
 		vrc7_s->test_halt_phase = BIT_TEST(data, 2);
 		vrc7_s->test_counters = BIT_TEST(data, 3);
 		break;
