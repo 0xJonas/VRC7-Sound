@@ -404,7 +404,7 @@ static int32_t update_slot(struct vrc7_sound *vrc7_s, uint32_t ch, uint32_t type
 
 	//Add envelope
 	update_envelope(vrc7_s, ch, type);
-#ifdef VRC7_TEST_REG
+#ifdef VRC7_SOUND_TEST_REG
 	if (!vrc7_s->test_envelope)
 #endif
 	volume += slot->env_value;
@@ -441,7 +441,7 @@ static void update_fmam(struct vrc7_sound *vrc7_s) {
 			vrc7_s->tremolo_inc *= -1;
 	}
 
-#ifdef VRC7_TEST_REG
+#ifdef VRC7_SOUND_TEST_REG
 	if (vrc7_s->test_reset_fmam) {
 		vrc7_s->vibrato_counter = 0;
 		vrc7_s->tremolo_value = 0;
@@ -604,16 +604,34 @@ VRC7SOUND_API void vrc7_reset(struct vrc7_sound *vrc7_s) {
 }
 
 VRC7SOUND_API void vrc7_clear(struct vrc7_sound *vrc7_s) {
+	const unsigned char empty[8] = { 0,0,0,0,0,0,0,0 };
+	vrc7_reg_to_patch(empty, vrc7_s->patches[0]);
+
 	vrc7_s->tremolo_value = 0;
 	vrc7_s->tremolo_inc = 1;
-	//TODO
+	vrc7_s->mini_counter = 0;
+
+	for (int i = 0; i < VRC7_NUM_CHANNELS; i++) {
+		vrc7_s->channels[i]->fNum = 0;
+		vrc7_s->channels[i]->octave = 0;
+		vrc7_s->channels[i]->volume = 0;
+		set_instrument(vrc7_s, i, 0);
+
+		for (int j = 0; j < 2; j++) {
+			int type = j == 0 ? MODULATOR : CARRIER;
+			vrc7_s->channels[i]->slots[type]->env_stage = ENV_DAMPING;
+			vrc7_s->channels[i]->slots[type]->env_value = 0;
+			vrc7_s->channels[i]->slots[type]->env_rate_high = 0;
+			vrc7_s->channels[i]->slots[type]->env_rate_low = 0;
+		}
+	}
 }
 
 VRC7SOUND_API void vrc7_set_clock_rate(struct vrc7_sound *vrc7_s, double clock_rate) {
 	vrc7_s->clock_rate = clock_rate;
 	double alpha1 = 27000.0 + 33000.0;
 	double alpha2 = 0.0047 * 27.0 * 33.0 * 2.0 * clock_rate; //0.0000000047*27000.0*33000.0*2.0*clock_rate;
-	double alpha2_fast = 0.0047 * 27.0 * 33.0 * 2.0 * clock_rate / 72.0; //0.0000000047*27000.0*33000.0*2.0*clock_rate;
+	double alpha2_fast = 0.0047 * 27.0 * 33.0 * 2.0 * clock_rate / 72.0; //0.0000000047*27000.0*33000.0*2.0*clock_rate/72.0;
 	vrc7_s->fir_coeff = (float) (33000.0/(alpha1+alpha2));
 	vrc7_s->iir_coeff = (float) (-(alpha1 - alpha2) / (alpha1 + alpha2));
 	vrc7_s->fir_coeff_fast = (float)(33000.0 / (alpha1 + alpha2_fast));
@@ -648,14 +666,14 @@ VRC7SOUND_API void vrc7_tick(struct vrc7_sound *vrc7_s) {
 				vrc7_s->signal[STEREO_RIGHT][i * 4] = (int16_t) ((val >> 3) * vrc7_s->stereo_volume[STEREO_RIGHT][channel_num]);
 			}
 		}
-#ifdef VRC7_TEST_REG
+#ifdef VRC7_SOUND_TEST_REG
 		if (!vrc7_s->test_counters) {
 #endif
 		  if (i == 16) {
 		  	  update_fmam(vrc7_s);
 			  update_envelope_counters(vrc7_s);
 		  }
-#ifdef VRC7_TEST_REG
+#ifdef VRC7_SOUND_TEST_REG
 		} else {	//Update
 			update_fmam(vrc7_s);
 		}
@@ -697,7 +715,7 @@ VRC7SOUND_API void vrc7_write_data(struct vrc7_sound *vrc7_s, uint32_t data) {
 	int channel_num = vrc7_s->address & 0x0f;
 	struct vrc7_patch *user_tone = vrc7_s->patches[0];
 
-#ifdef VRC7_TEST_REG
+#ifdef VRC7_SOUND_TEST_REG
 	if (vrc7_s->test_counters) {
 		if (BIT_TEST(data, 2))	//Not really the correct behaviour, but the best approximation since the emulator only updates once per sample
 			vrc7_s->envelope_counter = 0xffff;

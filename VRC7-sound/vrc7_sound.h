@@ -35,7 +35,7 @@ Lagrange point filter analysis by kevtris:
 // #define VRC7_SOUND_IMPORTING
 
 // <!>  Uncomment the following line when you want to have the VRC7's TEST register enabled <!>
-// #define VRC7_TEST_REG
+// #define VRC7_SOUND_TEST_REG
 
 #ifndef VRC7_SOUND_H
 #define VRC7_SOUND_H
