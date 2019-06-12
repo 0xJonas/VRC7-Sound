@@ -20,7 +20,7 @@ YM2413 (OPLL) Datasheet:
 VRC7 audio on Nesdev Wiki:
 	https://wiki.nesdev.com/w/index.php/VRC7_audio
 
-OPL2 logSin/exp/ksl tables by Olli Niemitalo:
+OPLs logSin/exp/ksl tables by Olli Niemitalo and Matthew Gambrell:
 	http://yehar.com/blog/?p=665
 	https://docs.google.com/document/d/18IGx18NQY_Q1PJVZ-bHywao9bhsDoAqoIn1rIm42nwo/edit
 
@@ -604,7 +604,7 @@ VRC7SOUND_API void vrc7_reset(struct vrc7_sound *vrc7_s) {
 }
 
 VRC7SOUND_API void vrc7_clear(struct vrc7_sound *vrc7_s) {
-	const unsigned char empty[8] = { 0,0,0,0,0,0,0,0 };
+	unsigned char empty[8] = { 0,0,0,0,0,0,0,0 };
 	vrc7_reg_to_patch(empty, vrc7_s->patches[0]);
 
 	vrc7_s->tremolo_value = 0;
@@ -855,7 +855,7 @@ VRC7SOUND_API void vrc7_patch_to_reg(struct vrc7_patch *patch, uint8_t *reg) {
 	reg[7] = byte;
 }
 
-VRC7SOUND_API void vrc7_reg_to_patch(unsigned const char *reg, struct vrc7_patch *patch) {
+VRC7SOUND_API void vrc7_reg_to_patch(const uint8_t *reg, struct vrc7_patch *patch) {
 	patch->total_level = reg[2] & 0x3f;
 	patch->feedback = reg[3] & 0x07;
 
@@ -892,9 +892,15 @@ VRC7SOUND_API void vrc7_reg_to_patch(unsigned const char *reg, struct vrc7_patch
 }
 
 VRC7SOUND_API void vrc7_get_default_patch(int set, uint32_t index, struct vrc7_patch *patch) {
-	unsigned const char *start = DEFAULT_INST[set] + index * 16 * sizeof(unsigned char);
+	const uint8_t *start = DEFAULT_INST[set] + index * 16 * sizeof(unsigned char);
 	vrc7_reg_to_patch(start, patch);
 }
+
+/*
+==================================================
+			  VRC7 FILTER FUNCTIONS
+==================================================
+*/
 
 VRC7SOUND_API void vrc7_filter_raw(struct vrc7_sound *vrc7_s) {
 	(void)vrc7_s;
