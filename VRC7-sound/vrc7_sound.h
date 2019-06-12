@@ -10,6 +10,8 @@
 
 VRC7 Audio emulator by Delphi1024
 
+Copyright 2019 Jonas Rinke
+
 ===REFERENCES===
 VRC7 die shot by digshadow:
 	https://siliconpr0n.org/archive/doku.php?id=digshadow:konami:vrc_vii_053982

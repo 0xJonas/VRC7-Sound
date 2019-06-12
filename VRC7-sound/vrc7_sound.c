@@ -10,6 +10,8 @@
 
 VRC7 Audio emulator by Delphi1024
 
+Copyright 2019 Jonas Rinke
+
 ===REFERENCES===
 VRC7 die shot by digshadow:
 	https://siliconpr0n.org/archive/doku.php?id=digshadow:konami:vrc_vii_053982
@@ -20,7 +22,7 @@ YM2413 (OPLL) Datasheet:
 VRC7 audio on Nesdev Wiki:
 	https://wiki.nesdev.com/w/index.php/VRC7_audio
 
-OPLs logSin/exp/ksl tables by Olli Niemitalo and Matthew Gambrell:
+OPLx logSin/exp/ksl tables by Olli Niemitalo and Matthew Gambrell:
 	http://yehar.com/blog/?p=665
 	https://docs.google.com/document/d/18IGx18NQY_Q1PJVZ-bHywao9bhsDoAqoIn1rIm42nwo/edit
 
@@ -85,14 +87,17 @@ static const uint8_t DEFAULT_INST[VRC7_NUM_PATCH_SETS][(16 + 3) * 16] = {
   },
 };
 
+//Operator/Phase Generator constants
 static const double MULT[16] = {0.125, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 2.5, 3.0, 3.0, 3.75, 3.75};
 
+static const int8_t FEEDBACK_SHIFT[8] = { 7, 6, 5, 4, 3, 2, 1, 0 };
+
+//Key level scaling
 static const uint16_t KSL[16] = { 0, 32, 40, 45, 48, 51, 53, 55, 56, 58, 59, 60, 61, 62, 63, 64 };
 
 static const uint32_t KSL_SHIFT[4] = { 7,1,2,0 };
 
-static const int8_t FEEDBACK_SHIFT[8] = { 7, 6, 5, 4, 3, 2, 1, 0 };
-
+//Scheduler setting
 static const uint32_t TYPE_SCHEDULE[18] = { MODULATOR,MODULATOR,
 										CARRIER,CARRIER ,CARRIER ,
 										MODULATOR,MODULATOR ,MODULATOR ,
@@ -103,6 +108,7 @@ static const uint32_t TYPE_SCHEDULE[18] = { MODULATOR,MODULATOR,
 
 static const uint32_t CHANNEL_SCHEDULE[18] = { 1,2,0,1,2,3,4,5,3,4,5,6,7,8,6,7,8,0 };
 
+//Envelope constants
 static const bool ENV_TABLE[4][4] = {
 	{false,false,false,false},
 	{true ,false,false,false},
@@ -126,6 +132,7 @@ static uint32_t logsin[LOGSIN_TABLE_LEN];
 static uint16_t fast_exp[FAST_EXP_TABLE_LEN];
 
 static void make_tables(void) {
+	//Make sure the function only creates the tables once
 	static bool tables_initialized = false;
 	if (tables_initialized)
 		return;
@@ -137,6 +144,7 @@ static void make_tables(void) {
 		exp[i] = (int)round((pow(2, (double)i / 256.0) - 1) * 1024);
 	}
 
+	//Create a larger lookup table to speed up computation of the exp value at the expense of more memory
 	for (uint32_t i = 0; i < FAST_EXP_TABLE_LEN; i++) {
 		int shift = i >> 8;
 		int index = ~i & 0xff;
@@ -238,11 +246,16 @@ static uint32_t calc_envelope_rate_high(struct vrc7_channel *channel, struct vrc
 }
 
 static int32_t calc_operator(uint32_t phase, int32_t mod_phase, uint32_t volume,bool rect) {
+	//Calculate final phase value
 	phase = ((phase >> 9) + mod_phase) & 0x3ff;
+
+	//Calculate logsin value
 	uint32_t logsin_val = phase_to_logsin(phase);
 	logsin_val += volume << 4;
 
 	int32_t output;
+
+	//Set output to 0 if value is too big
 	if (logsin_val >= (1 << 12)) {
 		output = 0;
 	}else {
@@ -259,12 +272,15 @@ static int32_t calc_operator(uint32_t phase, int32_t mod_phase, uint32_t volume,
 	return output;
 }
 
+/*
+Reloads the envelope rate when the envelope stage changes.
+*/
 static void set_envelope_stage(struct vrc7_sound *vrc7_s,uint32_t ch, uint32_t type, uint32_t stage) {
 	struct vrc7_channel *channel = vrc7_s->channels[ch];
 	struct vrc7_patch *patch = vrc7_s->patches[channel->instrument];
 	struct vrc7_slot *slot = channel->slots[type];
 
-	//Calculate new high and low rates
+	//Calculate new high rates
 	slot->env_stage = stage;
 	slot->env_rate_high = calc_envelope_rate_high(channel, patch, type, stage);
 }
@@ -414,7 +430,7 @@ static int32_t update_slot(struct vrc7_sound *vrc7_s, uint32_t ch, uint32_t type
 
 	//Get operator value
 	int32_t output = calc_operator(slot->phase, modulation, volume, patch->rect[type]);
-	if (slot->env_value == 0x7f)	//Not sure is this will ever be reached, but if it does, the VRC7 explicitely sets the operator output to 0.
+	if (slot->env_value == 0x7f)	//Not sure if this will ever be reached, but if it does, the VRC7 explicitely sets the operator output to 0.
 		output = 0;
 	slot->sample_prev = slot->sample;
 	slot->sample = output;
@@ -471,6 +487,9 @@ static void update_envelope_counters(struct vrc7_sound *vrc7_s){
 		vrc7_s->zero_count = 0;
 }
 
+/*
+Updates the precalculated values when the instrument changes.
+*/
 static void set_instrument(struct vrc7_sound *vrc7_s, uint32_t ch, uint32_t instrument) {
 	struct vrc7_channel *channel = vrc7_s->channels[ch];
 	struct vrc7_patch *patch = vrc7_s->patches[instrument];
@@ -486,6 +505,9 @@ static void set_instrument(struct vrc7_sound *vrc7_s, uint32_t ch, uint32_t inst
 	}
 }
 
+/*
+Updates the precalculated values when the fNum changes.
+*/
 static void set_fnum(struct vrc7_sound *vrc7_s, uint32_t ch, uint32_t fNum) {
 	struct vrc7_channel *channel = vrc7_s->channels[ch];
 	struct vrc7_patch *patch = vrc7_s->patches[channel->instrument];
@@ -499,6 +521,9 @@ static void set_fnum(struct vrc7_sound *vrc7_s, uint32_t ch, uint32_t fNum) {
 	}
 }
 
+/*
+Updates the precalculated values when the octave changes.
+*/
 static void set_octave(struct vrc7_sound *vrc7_s, uint32_t ch, uint32_t octave) {
 	vrc7_s->channels[ch]->octave = octave;
 
@@ -506,6 +531,9 @@ static void set_octave(struct vrc7_sound *vrc7_s, uint32_t ch, uint32_t octave) 
 	set_instrument(vrc7_s, ch, vrc7_s->channels[ch]->instrument);
 }
 
+/*
+Updates the precalculated values when the user tone register changes.
+*/
 static void update_user_tone(struct vrc7_sound *vrc7_s) {
 	for (int i = 0; i < VRC7_NUM_CHANNELS; i++) {
 		if (vrc7_s->channels[i]->instrument != 0)
@@ -611,6 +639,13 @@ VRC7SOUND_API void vrc7_clear(struct vrc7_sound *vrc7_s) {
 	vrc7_s->tremolo_inc = 1;
 	vrc7_s->mini_counter = 0;
 
+#ifdef VRC7_SOUND_TEST_REG
+	vrc7_s->test_envelope = false;
+	vrc7_s->test_reset_fmam = false;
+	vrc7_s->test_halt_phase = false;
+	vrc7_s->test_counters = false;
+#endif
+
 	for (int i = 0; i < VRC7_NUM_CHANNELS; i++) {
 		vrc7_s->channels[i]->fNum = 0;
 		vrc7_s->channels[i]->octave = 0;
@@ -632,6 +667,8 @@ VRC7SOUND_API void vrc7_set_clock_rate(struct vrc7_sound *vrc7_s, double clock_r
 	double alpha1 = 27000.0 + 33000.0;
 	double alpha2 = 0.0047 * 27.0 * 33.0 * 2.0 * clock_rate; //0.0000000047*27000.0*33000.0*2.0*clock_rate;
 	double alpha2_fast = 0.0047 * 27.0 * 33.0 * 2.0 * clock_rate / 72.0; //0.0000000047*27000.0*33000.0*2.0*clock_rate/72.0;
+
+	//compute filter coefficients
 	vrc7_s->fir_coeff = (float) (33000.0/(alpha1+alpha2));
 	vrc7_s->iir_coeff = (float) (-(alpha1 - alpha2) / (alpha1 + alpha2));
 	vrc7_s->fir_coeff_fast = (float)(33000.0 / (alpha1 + alpha2_fast));
@@ -654,13 +691,18 @@ VRC7SOUND_API void vrc7_set_patch_set(struct vrc7_sound *vrc7_s, int set) {
 VRC7SOUND_API void vrc7_tick(struct vrc7_sound *vrc7_s) {
 	//Update channels
 	for (int i = 0; i < 18; i++) {
+		//Clear previous signal
 		vrc7_s->signal[STEREO_LEFT][i * 4 + 0] = vrc7_s->signal[STEREO_RIGHT][i * 4 + 0] = 0;
 		vrc7_s->signal[STEREO_LEFT][i * 4 + 1] = vrc7_s->signal[STEREO_RIGHT][i * 4 + 1] = 0;
 		vrc7_s->signal[STEREO_LEFT][i * 4 + 2] = vrc7_s->signal[STEREO_RIGHT][i * 4 + 2] = 0;
 		vrc7_s->signal[STEREO_LEFT][i * 4 + 3] = vrc7_s->signal[STEREO_RIGHT][i * 4 + 3] = 0;
+
+		//vrc7 technically has 9 channels, but only 6 of them can be used.
 		if (CHANNEL_SCHEDULE[i] < VRC7_NUM_CHANNELS) {
 			int channel_num = CHANNEL_SCHEDULE[i];
 			int32_t val = update_slot(vrc7_s, channel_num, TYPE_SCHEDULE[i]);
+
+			//only add output to the signal the slot is a carrier and the channel is enabled
 			if (!BIT_TEST(vrc7_s->channel_mask, channel_num) && TYPE_SCHEDULE[i] == CARRIER) {
 				vrc7_s->signal[STEREO_LEFT][i * 4] = (int16_t) ((val >> 3) * vrc7_s->stereo_volume[STEREO_LEFT][channel_num]);
 				vrc7_s->signal[STEREO_RIGHT][i * 4] = (int16_t) ((val >> 3) * vrc7_s->stereo_volume[STEREO_RIGHT][channel_num]);
@@ -669,6 +711,7 @@ VRC7SOUND_API void vrc7_tick(struct vrc7_sound *vrc7_s) {
 #ifdef VRC7_SOUND_TEST_REG
 		if (!vrc7_s->test_counters) {
 #endif
+		  //update envelope counters and lfos
 		  if (i == 16) {
 		  	  update_fmam(vrc7_s);
 			  update_envelope_counters(vrc7_s);
@@ -688,6 +731,7 @@ VRC7SOUND_API void vrc7_tick(struct vrc7_sound *vrc7_s) {
 #endif
 	}
 
+	//Apply output filter
 	vrc7_s->filter(vrc7_s);
 }
 
@@ -696,6 +740,8 @@ VRC7SOUND_API void vrc7_fetch_sample(struct vrc7_sound *vrc7_s, int16_t *sample)
 		vrc7_tick(vrc7_s);
 		vrc7_s->current_time -= VRC7_SIGNAL_CHUNK_LENGTH;
 	}
+
+	//Use nearest-neighbour resampling. Since we can choose from 72 samples, this ough to be enough.
 	sample[0] = vrc7_s->signal[STEREO_LEFT][(int) vrc7_s->current_time];
 	sample[1] = vrc7_s->signal[STEREO_RIGHT][(int)vrc7_s->current_time];
 	vrc7_s->current_time += vrc7_s->sample_length;
@@ -785,21 +831,25 @@ VRC7SOUND_API void vrc7_write_data(struct vrc7_sound *vrc7_s, uint32_t data) {
 
 		struct vrc7_channel *channel = vrc7_s->channels[channel_num];
 
-		if ((vrc7_s->address & 0xf0) == 0x10) {
+		if ((vrc7_s->address & 0xf0) == 0x10) {			//Fnum
 			set_fnum(vrc7_s, channel_num, (channel->fNum & 0x100) + data);
-		}else if ((vrc7_s->address & 0xf0) == 0x20) {
+		}
+		else if ((vrc7_s->address & 0xf0) == 0x20) {	//Octave/sustain/trigger
 			bool prev_trigger = channel->trigger;
 			channel->fNum = (channel->fNum & 0xff) + ((data & 0x01) << 8);
 			channel->trigger = BIT_TEST(data, 4);
+			channel->sustain = BIT_TEST(data, 5);
+
+			//Restart envelopes if trigger changes from 0 to 1
 			if (channel->trigger && !prev_trigger) {
 				channel->slots[MODULATOR]->restart_env = true;
 				channel->slots[CARRIER]->restart_env = true;
 			}
-			channel->sustain = BIT_TEST(data, 5);
 
 			//Setting the octave will update all the other stuff as well
 			set_octave(vrc7_s, channel_num, (data >> 1) & 0x07);
-		}else if ((vrc7_s->address & 0xf0) == 0x30) {
+		}
+		else if ((vrc7_s->address & 0xf0) == 0x30) {	//Instrument/volume
 			channel->volume = data & 0x0f;
 
 			set_instrument(vrc7_s, channel_num, data >> 4);
@@ -929,6 +979,7 @@ VRC7SOUND_API void vrc7_filter_lagrange_point(struct vrc7_sound *vrc7_s) {
 	for (int i = 0; i < 2; i++) {
 		int side = i == 1 ? STEREO_RIGHT : STEREO_LEFT;
 		for (int j = 0; j < VRC7_SIGNAL_CHUNK_LENGTH; j++) {
+			//Apply filter
 			float output = prev_input[side] * fir
 				+ vrc7_s->signal[side][j] * fir
 				+ prev_output[side] * iir;
@@ -950,10 +1001,12 @@ VRC7SOUND_API void vrc7_filter_lagrange_point_fast(struct vrc7_sound *vrc7_s) {
 		int side = i == 1 ? STEREO_RIGHT : STEREO_LEFT;
 		int16_t sum = 0;
 
+		//Sum signal
 		for (int j = 0; j < VRC7_SIGNAL_CHUNK_LENGTH; j++) {
 			sum += vrc7_s->signal[side][j];
 		}
 
+		//Apply filter
 		float output = prev_input[side] * fir
 			+ sum * fir
 			+ prev_output[side] * iir;
@@ -963,6 +1016,7 @@ VRC7SOUND_API void vrc7_filter_lagrange_point_fast(struct vrc7_sound *vrc7_s) {
 
 		output = (float) (output * VRC7_AMPLIFIER_GAIN * 3.35);
 
+		//Fill array with output value
 		for (int j = 0; j < VRC7_SIGNAL_CHUNK_LENGTH; j++) {
 			vrc7_s->signal[side][j] = (int16_t) output;
 		}
