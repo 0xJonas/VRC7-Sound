@@ -127,6 +127,7 @@ enum env_stages {
 	ENV_DAMPING		//trigger off
 };
 
+//Lookup tables
 static uint32_t logsin[LOGSIN_TABLE_LEN];
 
 static uint16_t fast_exp[FAST_EXP_TABLE_LEN];
@@ -163,7 +164,6 @@ static void make_tables(void) {
 }
 
 static inline uint32_t phase_to_logsin(uint32_t phase) {
-	//phase ^= 1;	//TODO check?
 	if (BIT_TEST(phase, 8))
 		phase = ~phase;
 	return logsin[phase & 0xff];
@@ -340,7 +340,7 @@ static void update_envelope(struct vrc7_sound *vrc7_s, uint32_t ch,uint32_t type
 	if (rate_high == 15 || rate_high == 14 && env_table)
 		env_inc |= inc1;
 
-	//Update the envelope value in a weird way
+	//Update envelope value
 	uint32_t env_value = (slot->env_value + env_inc) & 0x7f;
 	
 	//Update envelope stage

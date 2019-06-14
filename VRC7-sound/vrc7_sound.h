@@ -211,7 +211,7 @@ VRC7SOUND_API void vrc7_set_clock_rate(struct vrc7_sound *vrc7_s, double clock_r
 
 /*
 Sets the sample rate of the vrc7_sound object. This function only has an effect if you are using vrc7_fetch_sample. This is not to be
-confused with the sample rate of the signal member of the vrc7_sound object which is set by vrc7_set_clock_rate.
+confused with the sample rate of the signal variable of the vrc7_sound object which is set by vrc7_set_clock_rate.
 */
 VRC7SOUND_API void vrc7_set_sample_rate(struct vrc7_sound *vrc7_s, double sample_rate);
 
@@ -222,12 +222,12 @@ VRC7SOUND_API void vrc7_set_patch_set(struct vrc7_sound *vrc7_s, int patch_set);
 
 /*
 Updates the vrc7. This function has to be called at 1/72th of the clock rate set by vrc7_set_clock_rate. After calling this function,
-the signal member of the vrc7_object will contain new data. If you are using vrc7_fetch_sample, you do not need to call this function.
+the signal variable of the vrc7_sound object will contain new data. If you are using vrc7_fetch_sample, you should not call this function.
 */
 VRC7SOUND_API void vrc7_tick(struct vrc7_sound *vrc7_s);
 
 /*
-Fetches a single sample and updates the vrc7. This function internally calls vrc7_tick, so you should not call it manually when using
+Fetches a single sample and updates the vrc7_sound object. This function internally calls vrc7_tick, so you should not call it manually when using
 vrc7_fetch_sample. This function has to be called at the sample rate set by vrc7_set_sample_rate.
 */
 VRC7SOUND_API void vrc7_fetch_sample(struct vrc7_sound *vrc7_s, int16_t *sample);
@@ -270,12 +270,12 @@ VRC7SOUND_API void vrc7_get_default_patch(int set, uint32_t index, struct vrc7_p
 */
 
 /*
-Filter function that leaves the raw output from the vrc7 in the signal member. In other words, this function does nothing.
+Filter function that leaves the raw output from the vrc7 in the signal variable. In other words, this function does nothing.
 */
 VRC7SOUND_API void vrc7_filter_raw(struct vrc7_sound *vrc7_s);
 
 /*
-Filter function converts the pulse output of the vrc7 into a more usable signal, but does not apply any filters to it.
+Filter function that converts the pulse output of the vrc7 into a more usable signal, but does not apply any filters to it.
 The output signal is filled with the sum of each of the channels outputs.
 */
 VRC7SOUND_API void vrc7_filter_no_filter(struct vrc7_sound *vrc7_s);

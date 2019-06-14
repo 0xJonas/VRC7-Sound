@@ -6,8 +6,8 @@ Emulator for the expansion sound of the Konami VRC7.
 
 VRC7-Sound is an open-source emulator for the Konami VRC7's expansion sound, featured in the Famicom game *Lagrange Point*.
 The VRC7 enables FM-style music through the use of a modified Yamaha YM2413 (OPLL) architecture, which is itself based on the
-YM3812, a chip prominently used in the AdLib and Sound Blaster soundcards. The emulator attempts to accurately recreate this sound
-by relying mostly on information gathered from the VRC7's die shot.
+YM3812, a chip prominently used in the AdLib and Sound Blaster soundcards. The emulator attempts to recreate this sound as accurately
+as possible by relying mostly on information gathered from the VRC7's die shot.
 
 ## Usage
 
