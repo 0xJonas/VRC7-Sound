@@ -12,7 +12,7 @@ as possible by relying mostly on information gathered from the VRC7's die shot.
 ## Usage
 
 To use VRC7-Sound, simply embed the source files into your C/C++ project. No additional libraries are required. Detailed 
-description of how to use the emulator and it's specific functions are given in the header file (vrc7_sound.h).
+description of how to use the emulator and its specific functions are given in the header file (vrc7_sound.h).
 
 ## Contact
 Questions? Feedback? Bugs? Let me know:
@@ -37,5 +37,5 @@ delphi1024 (аt) gmail (dоt) com
 * Instrument ROM Dump by NukeYKT:
   * https://siliconpr0n.org/archive/doku.php?id=vendor:yamaha:opl2#ym2413_instruments
 
-* Lagrange point filter analysis by kevtris:
+* *Lagrange Point* filter use analysis by kevtris:
   * http://forums.nesdev.com/viewtopic.php?t=4709&p=41523
